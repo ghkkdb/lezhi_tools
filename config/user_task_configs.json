@@ -1,0 +1,305 @@
+{
+  "默认配置": {
+    "last_used": "2026-04-30T17:27:47.842931",
+    "checked_tasks": [
+      "课业任务"
+    ],
+    "task_params": {
+      "每日可换": {
+        "每日签到": false,
+        "每日江湖礼": false,
+        "每日在线礼": false,
+        "每日回馈礼": false,
+        "每日买银票": false,
+        "买鸡蛋": false,
+        "榫头卯眼": false,
+        "兑换武经志": false,
+        "小红花礼盒": false,
+        "购买铜豆子": false,
+        "功绩换铜板": false,
+        "行当绝活": false,
+        "碧铜马坯": false,
+        "买吴越剑坯": false,
+        "买白公鼎坯": false,
+        "兑换锦芳绣": false,
+        "买形影心得": false,
+        "换高级萃石": false
+      },
+      "摇钱树": {
+        "choice": "轻轻摇"
+      },
+      "华山论剑1v1": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "寻访佳园": {
+        "count": 5
+      },
+      "华山论剑3v3": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "江湖英雄榜": {
+        "count": 1,
+        "quick_exit": true
+      }
+    }
+  },
+  "123": {
+    "last_used": "2026-04-30T17:31:06.473999",
+    "checked_tasks": [
+      "摇钱树"
+    ],
+    "task_params": {
+      "摇钱树": {
+        "choice": "轻轻摇"
+      }
+    }
+  },
+  "111": {
+    "last_used": "2026-04-30T17:32:36.307521",
+    "checked_tasks": [
+      "山河器"
+    ],
+    "task_params": {
+      "摇钱树": {
+        "choice": "用力摇"
+      }
+    }
+  },
+  "33": {
+    "last_used": "2026-04-30T17:01:03.090164",
+    "checked_tasks": [
+      "帮派捐献"
+    ],
+    "task_params": {
+      "每日可换": {
+        "每日签到": true,
+        "每日江湖礼": true,
+        "每日在线礼": true,
+        "每日回馈礼": true,
+        "每日买银票": true,
+        "买鸡蛋": true,
+        "榫头卯眼": true,
+        "兑换武经志": true,
+        "小红花礼盒": true,
+        "购买铜豆子": true,
+        "功绩换铜板": true,
+        "行当绝活": true,
+        "碧铜马坯": true,
+        "买吴越剑坯": true,
+        "买白公鼎坯": true,
+        "兑换锦芳绣": true,
+        "买形影心得": true,
+        "换高级萃石": true
+      },
+      "帮派捐献": {
+        "捐献铜币": true,
+        "捐献银两": false,
+        "捐献元宝": false
+      },
+      "摇钱树": {
+        "choice": "用力摇"
+      },
+      "华山论剑1v1": {
+        "count": 2,
+        "quick_exit": true
+      },
+      "寻访佳园": {
+        "count": 5
+      },
+      "华山论剑3v3": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "江湖英雄榜": {
+        "count": 1,
+        "quick_exit": true
+      }
+    }
+  },
+  "ALL": {
+    "last_used": "2026-04-30T17:35:48.192528",
+    "checked_tasks": [
+      "每日可换",
+      "山河器",
+      "每日一卦",
+      "茶馆说书",
+      "课业任务",
+      "帮派任务",
+      "门客设宴",
+      "破阵设宴",
+      "帮派捐献",
+      "摇钱树",
+      "华山论剑1v1",
+      "寻访佳园",
+      "日常副本",
+      "每日悬赏",
+      "华山论剑3v3",
+      "江湖英雄榜",
+      "每日副本",
+      "聚义平冤",
+      "江湖行商",
+      "天下宗师",
+      "剑取楼兰日常",
+      "万象拍照",
+      "坐观万象"
+    ],
+    "task_params": {
+      "每日可换": {
+        "每日签到": true,
+        "每日江湖礼": true,
+        "每日在线礼": true,
+        "每日回馈礼": true,
+        "每日买银票": true,
+        "买鸡蛋": true,
+        "榫头卯眼": true,
+        "兑换武经志": true,
+        "小红花礼盒": true,
+        "购买铜豆子": true,
+        "功绩换铜板": true,
+        "行当绝活": true,
+        "碧铜马坯": true,
+        "买吴越剑坯": true,
+        "买白公鼎坯": true,
+        "兑换锦芳绣": true,
+        "买形影心得": true,
+        "换高级萃石": true
+      },
+      "摇钱树": {
+        "choice": "轻轻摇"
+      },
+      "华山论剑1v1": {
+        "count": 2,
+        "quick_exit": true
+      },
+      "寻访佳园": {
+        "count": 5
+      },
+      "华山论剑3v3": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "江湖英雄榜": {
+        "count": 1,
+        "quick_exit": true
+      }
+    }
+  },
+  "111111": {
+    "last_used": "2026-04-30T16:54:23.907905",
+    "checked_tasks": [
+      "日常副本"
+    ],
+    "task_params": {
+      "每日可换": {
+        "每日签到": true,
+        "每日江湖礼": true,
+        "每日在线礼": true,
+        "每日回馈礼": true,
+        "每日买银票": true,
+        "买鸡蛋": true,
+        "榫头卯眼": true,
+        "兑换武经志": true,
+        "小红花礼盒": true,
+        "购买铜豆子": true,
+        "功绩换铜板": true,
+        "行当绝活": true,
+        "碧铜马坯": true,
+        "买吴越剑坯": true,
+        "买白公鼎坯": true,
+        "兑换锦芳绣": true,
+        "买形影心得": true,
+        "换高级萃石": true
+      },
+      "帮派捐献": {
+        "捐献铜币": true,
+        "捐献银两": false,
+        "捐献元宝": false
+      },
+      "摇钱树": {
+        "choice": "轻轻摇【免费】"
+      },
+      "华山论剑1v1": {
+        "count": 2,
+        "quick_exit": true
+      },
+      "华山论剑3v3": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "寻访佳园": {
+        "count": 5
+      },
+      "江湖英雄榜": {
+        "count": 1,
+        "quick_exit": true
+      }
+    }
+  },
+  "kkdb": {
+    "last_used": "2026-04-30T17:35:52.098308",
+    "checked_tasks": [
+      "帮派任务",
+      "破阵设宴",
+      "摇钱树"
+    ],
+    "task_params": {
+      "每日可换": {
+        "每日签到": false,
+        "每日江湖礼": false,
+        "每日在线礼": false,
+        "每日回馈礼": false,
+        "每日买银票": false,
+        "买鸡蛋": false,
+        "榫头卯眼": false,
+        "兑换武经志": false,
+        "小红花礼盒": false,
+        "购买铜豆子": false,
+        "功绩换铜板": false,
+        "行当绝活": false,
+        "碧铜马坯": false,
+        "买吴越剑坯": false,
+        "买白公鼎坯": false,
+        "兑换锦芳绣": false,
+        "买形影心得": false,
+        "换高级萃石": false
+      },
+      "帮派捐献": {
+        "捐献铜币": true,
+        "捐献银两": false,
+        "捐献元宝": false
+      },
+      "摇钱树": {
+        "choice": "轻轻摇【免费】"
+      },
+      "华山论剑1v1": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "华山论剑3v3": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "寻访佳园": {
+        "count": 5
+      },
+      "江湖英雄榜": {
+        "count": 1,
+        "quick_exit": true
+      },
+      "组队配置": {
+        "team_mode": "队长组队",
+        "team_size": "1人",
+        "season_shout": false,
+        "xiuwei_limit": ""
+      },
+      "聚义平冤": {
+        "mode": "发布悬赏"
+      },
+      "江湖行商": {
+        "mode": "发布悬赏"
+      }
+    }
+  }
+}
