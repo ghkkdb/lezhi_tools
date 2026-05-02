@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -35,7 +36,7 @@ class WindowLogDialog(QDialog):
     def __init__(self, title: str, colors: Dict[str, str], parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.resize(640, 360)
+        self.resize(config.ui_sizes["log_width"], config.ui_layout["bottom_group_height"])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -162,6 +163,14 @@ class MultiWindowSlotPanel(QFrame):
         )
         layout.addWidget(self.status_label, stretch=1)
 
+        self.auto_log_checkbox = QCheckBox("弹日志")
+        self.auto_log_checkbox.setChecked(True)
+        self.auto_log_checkbox.setFixedWidth(64)
+        self.auto_log_checkbox.setStyleSheet(
+            f"color: {self._colors['text_secondary']}; border: none;"
+        )
+        layout.addWidget(self.auto_log_checkbox)
+
         self.open_log_btn = QPushButton("日志")
         self.open_log_btn.setFixedWidth(56)
         self.open_log_btn.clicked.connect(lambda _checked=False: self._ensure_log_dialog(show=True))
@@ -247,7 +256,7 @@ class MultiWindowSlotPanel(QFrame):
             self._append_local_log(f"[{self.slot_name}] 当前任务方案没有勾选任务")
             return
 
-        self._ensure_log_dialog(show=True)
+        self._ensure_log_dialog(show=self.auto_log_checkbox.isChecked())
         self._log_dialog.log_panel.clear()
 
         context = self.context_label
@@ -260,6 +269,31 @@ class MultiWindowSlotPanel(QFrame):
             f"[{self.slot_name}] 使用方案 [{self.config_combo.currentText()}] 启动: "
             f"{', '.join(selected)}"
         )
+
+    def start_task(self) -> bool:
+        """从外部批量启动时使用：只启动空闲窗口，避免误触发停止。"""
+        if self._worker and self._worker.isRunning():
+            self._append_local_log(f"[{self.slot_name}] 任务正在运行，已跳过一键启动")
+            return False
+
+        self._on_start_clicked()
+        return bool(self._worker and self._worker.isRunning())
+
+    def stop_task(self) -> bool:
+        """从外部批量停止时使用：只停止正在运行的任务。"""
+        if not self._worker or not self._worker.isRunning():
+            return False
+
+        self._stop_worker()
+        return True
+
+    def unbind_window(self) -> bool:
+        """从外部批量解绑时使用。"""
+        if not self.is_bound:
+            return False
+
+        self._unbind_window()
+        return True
 
     def _load_selected_config(self) -> Tuple[List[str], Dict[str, Dict]]:
         config_name = self.config_combo.currentText()
@@ -432,9 +466,24 @@ class MultiWindowControlPage(QWidget):
         header.addStretch()
 
         self.refresh_btn = QPushButton("刷新方案")
-        self.refresh_btn.setFixedWidth(80)
+        self.refresh_btn.setFixedSize(96, 30)
         self.refresh_btn.clicked.connect(self.refresh_config_names)
         header.addWidget(self.refresh_btn)
+
+        self.start_all_btn = QPushButton("一键启动")
+        self.start_all_btn.setFixedSize(96, 30)
+        self.start_all_btn.clicked.connect(self.start_all_windows)
+        header.addWidget(self.start_all_btn)
+
+        self.stop_all_btn = QPushButton("一键停止")
+        self.stop_all_btn.setFixedSize(96, 30)
+        self.stop_all_btn.clicked.connect(self.stop_all_windows)
+        header.addWidget(self.stop_all_btn)
+
+        self.unbind_all_btn = QPushButton("一键解绑")
+        self.unbind_all_btn.setFixedSize(96, 30)
+        self.unbind_all_btn.clicked.connect(self.unbind_all_windows)
+        header.addWidget(self.unbind_all_btn)
         layout.addLayout(header)
 
         self.scroll = QScrollArea()
@@ -490,6 +539,32 @@ class MultiWindowControlPage(QWidget):
     def refresh_config_names(self):
         for slot in self._slots:
             slot.refresh_config_names()
+        self.status_changed.emit()
+
+    def start_all_windows(self):
+        started_count = 0
+        for slot in self._slots:
+            if not slot.is_bound:
+                continue
+            if slot.start_task():
+                started_count += 1
+
+        if started_count > 0:
+            self.status_changed.emit()
+
+    def stop_all_windows(self):
+        stopped_count = 0
+        for slot in self._slots:
+            if slot.stop_task():
+                stopped_count += 1
+
+        if stopped_count > 0:
+            self.status_changed.emit()
+
+    def unbind_all_windows(self):
+        for slot in list(self._slots):
+            slot.unbind_window()
+
         self.status_changed.emit()
 
     def append_log(self, message: str) -> bool:
