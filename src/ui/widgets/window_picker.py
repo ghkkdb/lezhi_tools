@@ -197,7 +197,31 @@ class WindowPicker(QObject):
             print(f"调整窗口大小失败: {str(e)}")
             return False
 
-    def capture_region(self, hwnd):
+    def resize_window_keep_position(self, hwnd) -> bool:
+        """按配置调整窗口大小，保持当前窗口位置不变。"""
+        try:
+            if not win32gui.IsWindow(hwnd):
+                return False
+
+            left, top, _right, _bottom = win32gui.GetWindowRect(hwnd)
+            win32gui.SetWindowPos(
+                hwnd,
+                0,
+                left,
+                top,
+                self.target_width,
+                self.target_height,
+                0x0004 | 0x0040
+            )
+
+            time.sleep(0.3)
+            return True
+
+        except Exception as e:
+            print(f"调整窗口大小失败: {str(e)}")
+            return False
+
+    def capture_region(self, hwnd, adjust_window: bool = True):
         """
         截取窗口指定区域的图片
 
@@ -208,7 +232,7 @@ class WindowPicker(QObject):
             PIL.Image: 截取的区域图片，失败返回None
         """
         try:
-            if not self.resize_and_move_window(hwnd):
+            if adjust_window and not self.resize_window_keep_position(hwnd):
                 self.pick_status.emit("警告：窗口大小调整失败")
             
             # background_key(hwnd, 'SPACE')
@@ -261,7 +285,7 @@ class WindowPicker(QObject):
             
             if class_name == self.target_class_name:
                 self.pick_status.emit(f"窗口匹配成功！句柄: {hwnd}")
-                self.pick_status.emit("正在调整窗口大小并截图...")
+                self.pick_status.emit("正在绑定窗口并截图...")
                 region_img = self.capture_region(hwnd)
                 self.window_picked.emit(hwnd, region_img)
             else:
@@ -378,7 +402,7 @@ class WindowPicker(QObject):
             
             if class_name == self.target_class_name:
                 self.pick_status.emit(f"窗口匹配成功！句柄: {hwnd}")
-                self.pick_status.emit("正在调整窗口大小并截图...")
+                self.pick_status.emit("正在绑定窗口并截图...")
                 region_img = self.capture_region(hwnd)
                 self.window_picked.emit(hwnd, region_img)
             else:

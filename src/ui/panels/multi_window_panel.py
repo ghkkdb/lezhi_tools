@@ -7,8 +7,13 @@
 """
 from typing import Callable, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+import win32api
+import win32con
+import win32gui
+
+from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -104,7 +109,7 @@ class MultiWindowSlotPanel(QFrame):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
         self.title_label = QLabel(self.slot_name)
         self.title_label.setFixedWidth(54)
@@ -157,7 +162,7 @@ class MultiWindowSlotPanel(QFrame):
 
         self.status_label = QLabel("")
         self.status_label.setTextFormat(Qt.RichText)
-        self.status_label.setMinimumWidth(250)
+        self.status_label.setMinimumWidth(150)
         self.status_label.setStyleSheet(
             f"color: {self._colors['text_secondary']}; border: none;"
         )
@@ -165,14 +170,14 @@ class MultiWindowSlotPanel(QFrame):
 
         self.auto_log_checkbox = QCheckBox("弹日志")
         self.auto_log_checkbox.setChecked(True)
-        self.auto_log_checkbox.setFixedWidth(64)
+        self.auto_log_checkbox.setFixedWidth(72)
         self.auto_log_checkbox.setStyleSheet(
             f"color: {self._colors['text_secondary']}; border: none;"
         )
         layout.addWidget(self.auto_log_checkbox)
 
         self.open_log_btn = QPushButton("日志")
-        self.open_log_btn.setFixedWidth(56)
+        self.open_log_btn.setFixedSize(64, 30)
         self.open_log_btn.clicked.connect(lambda _checked=False: self._ensure_log_dialog(show=True))
         layout.addWidget(self.open_log_btn)
 
@@ -295,6 +300,29 @@ class MultiWindowSlotPanel(QFrame):
         self._unbind_window()
         return True
 
+    def arrange_window_and_log(self, x: int, y: int) -> bool:
+        if not self._bound_hwnd:
+            return False
+
+        try:
+            if not win32gui.IsWindow(self._bound_hwnd):
+                return False
+
+            win32gui.SetWindowPos(
+                self._bound_hwnd,
+                win32con.HWND_TOP,
+                x,
+                y,
+                config.x,
+                config.y,
+                win32con.SWP_SHOWWINDOW,
+            )
+            self._ensure_log_dialog(show=True)
+            return True
+        except Exception as exc:
+            self._append_local_log(f"[{self.slot_name}] 一键整理失败: {exc}")
+            return False
+
     def _load_selected_config(self) -> Tuple[List[str], Dict[str, Dict]]:
         config_name = self.config_combo.currentText()
         config_data = config.load_config(config_name) if config_name else None
@@ -372,6 +400,7 @@ class MultiWindowSlotPanel(QFrame):
             self._log_dialog = WindowLogDialog(title, self._colors, self)
         if show:
             self._log_dialog.setWindowModality(Qt.NonModal)
+            self._move_log_dialog_to_bound_window()
             self._log_dialog.show()
             self._log_dialog.setWindowState(
                 self._log_dialog.windowState() & ~Qt.WindowMinimized
@@ -379,6 +408,31 @@ class MultiWindowSlotPanel(QFrame):
             self._log_dialog.raise_()
             self._log_dialog.activateWindow()
         return self._log_dialog
+
+    def _move_log_dialog_to_bound_window(self):
+        if self._log_dialog is None or not self._bound_hwnd:
+            return
+
+        try:
+            if not win32gui.IsWindow(self._bound_hwnd):
+                return
+
+            dialog_size = self._log_dialog.sizeHint().expandedTo(self._log_dialog.size())
+            left, _top, _right, bottom = win32gui.GetWindowRect(self._bound_hwnd)
+            target_pos = QPoint(left, bottom - dialog_size.height())
+            available_rect = QApplication.desktop().availableGeometry(target_pos)
+
+            x = max(
+                available_rect.left(),
+                min(target_pos.x(), available_rect.right() - dialog_size.width() + 1),
+            )
+            y = max(
+                available_rect.top(),
+                min(target_pos.y(), available_rect.bottom() - dialog_size.height() + 1),
+            )
+            self._log_dialog.move(x, y)
+        except Exception:
+            pass
 
     def _append_local_log(self, message: str):
         if self._log_dialog is not None:
@@ -470,6 +524,11 @@ class MultiWindowControlPage(QWidget):
         self.refresh_btn.clicked.connect(self.refresh_config_names)
         header.addWidget(self.refresh_btn)
 
+        self.arrange_all_btn = QPushButton("一键整理")
+        self.arrange_all_btn.setFixedSize(96, 30)
+        self.arrange_all_btn.clicked.connect(self.arrange_all_windows)
+        header.addWidget(self.arrange_all_btn)
+
         self.start_all_btn = QPushButton("一键启动")
         self.start_all_btn.setFixedSize(96, 30)
         self.start_all_btn.clicked.connect(self.start_all_windows)
@@ -540,6 +599,45 @@ class MultiWindowControlPage(QWidget):
         for slot in self._slots:
             slot.refresh_config_names()
         self.status_changed.emit()
+
+    def arrange_all_windows(self):
+        bound_slots = [slot for slot in self._slots if slot.is_bound]
+        if not bound_slots:
+            return
+
+        try:
+            screen_width = win32api.GetSystemMetrics(0)
+            screen_height = win32api.GetSystemMetrics(1)
+        except Exception:
+            screen_width = 1920
+            screen_height = 1080
+
+        spacing = getattr(config, "window_spacing", 10)
+        window_width = config.x
+        window_height = config.y
+        x = 0
+        y = 0
+        row_height = window_height
+        arranged_count = 0
+
+        for slot in bound_slots:
+            if x + window_width > screen_width and x > 0:
+                x = 0
+                y += row_height + spacing
+                row_height = window_height
+
+            if y + window_height > screen_height and y > 0:
+                x = 0
+                y = 0
+
+            if slot.arrange_window_and_log(x, y):
+                arranged_count += 1
+
+            x += window_width + spacing
+            row_height = max(row_height, window_height)
+
+        if arranged_count > 0:
+            self.status_changed.emit()
 
     def start_all_windows(self):
         started_count = 0

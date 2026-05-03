@@ -169,6 +169,10 @@ class ClassicScriptUI(QMainWindow):
             unlock_callback=self.window_picker.unlock_window_size
         )
         self.multi_window_page.status_changed.connect(self._refresh_multi_status_log)
+        if self.task_config_panel is not None:
+            self.task_config_panel.config_list_changed.connect(
+                self.multi_window_page.refresh_config_names
+            )
         self.pages.addWidget(self.multi_window_page)
         self.pages.addWidget(self._create_placeholder_page("挂机任务"))
         self.pages.addWidget(self._create_placeholder_page("其他功能"))
@@ -597,7 +601,6 @@ class ClassicScriptUI(QMainWindow):
                 self.logger.warning(f"窗口句柄 {hwnd} 已绑定，不能重复添加")
                 return
 
-            self.window_picker.lock_window_size(hwnd)
             self.multi_window_page.add_window(hwnd, img)
             self.bottom_control_panel.set_window_unbound()
             self.bottom_control_panel.enable_pick_button(True)
@@ -605,7 +608,6 @@ class ClassicScriptUI(QMainWindow):
             self._refresh_multi_status_log()
             return
 
-        self.window_picker.lock_window_size(hwnd)
         self.state_manager.bind_window(hwnd)
         self.bottom_control_panel.set_window_bound(hwnd, img)
         self.logger.success(f"成功绑定窗口，句柄: {hwnd}")

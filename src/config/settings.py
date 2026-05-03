@@ -297,6 +297,10 @@ class Config:
             bool: 是否删除成功
         """
         return self.user.delete_config(config_name)
+
+    def clear_saved_configs(self) -> bool:
+        """清空所有自定义保存的配置方案，并保留默认配置。"""
+        return self.user.clear_saved_configs()
     
     def is_default_config(self, config_name: str) -> bool:
         """

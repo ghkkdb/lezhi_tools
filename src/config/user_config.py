@@ -143,6 +143,16 @@ class UserConfig:
             return True
         
         return False
+
+    def clear_saved_configs(self) -> bool:
+        """清空所有自定义保存的配置方案，并保留默认配置。"""
+        try:
+            self.saved_configs = {}
+            self.current_config_name = None
+            self._ensure_default_config()
+            return True
+        except Exception:
+            return False
     
     def is_default_config(self, config_name: str) -> bool:
         """

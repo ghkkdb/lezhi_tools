@@ -183,6 +183,7 @@ class TaskConfigPanel(QScrollArea):
     """
     
     config_changed = pyqtSignal()
+    config_list_changed = pyqtSignal()
     
     def __init__(self, task_list_panel, colors: dict, parent=None):
         """
@@ -289,6 +290,11 @@ class TaskConfigPanel(QScrollArea):
         self.delete_btn.setFixedWidth(60)
         self.delete_btn.clicked.connect(self._on_delete_config)
         config_row.addWidget(self.delete_btn)
+
+        self.clear_btn = QPushButton("清空")
+        self.clear_btn.setFixedWidth(60)
+        self.clear_btn.clicked.connect(self._on_clear_configs)
+        config_row.addWidget(self.clear_btn)
         
         config_row.addStretch()
         manager_layout.addLayout(config_row)
@@ -857,6 +863,17 @@ class TaskConfigPanel(QScrollArea):
             if not config_name:
                 QMessageBox.warning(self, "警告", "配置名称不能为空")
                 return
+
+            if config_name in config.get_config_names():
+                reply = QMessageBox.question(
+                    self,
+                    "确认覆盖",
+                    f"配置 '{config_name}' 已存在，确定要覆盖保存吗?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    return
             
             checked_tasks = self._task_list_panel.get_checked_tasks()
             task_params = self._get_all_task_params()
@@ -873,6 +890,7 @@ class TaskConfigPanel(QScrollArea):
                 "task_params": task_params
             }
             self._apply_config_data(config_data)
+            self.config_list_changed.emit()
             
             QMessageBox.information(self, "成功", f"配置 '{config_name}' 保存成功")
     
@@ -898,9 +916,49 @@ class TaskConfigPanel(QScrollArea):
             if config.delete_config(config_name):
                 self._refresh_config_list()
                 self._reset_to_defaults()
+                self.config_list_changed.emit()
                 QMessageBox.information(self, "成功", f"配置 '{config_name}' 已删除")
             else:
                 QMessageBox.warning(self, "失败", "删除配置失败")
+
+    def _on_clear_configs(self):
+        """清空所有已保存的自定义配置。"""
+        config_names = [
+            name for name in config.get_config_names()
+            if not config.is_default_config(name)
+        ]
+        if not config_names:
+            QMessageBox.information(self, "提示", "当前没有可清空的自定义配置")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "确认清空",
+            f"确定要清空目前全部保存的方案吗？\n\n将删除 {len(config_names)} 个自定义方案，此操作不可恢复。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        if config.clear_saved_configs():
+            self._refresh_config_list()
+            self._reset_to_defaults()
+
+            default_name = config.user.DEFAULT_CONFIG_NAME
+            self.config_combo.blockSignals(True)
+            self.config_combo.setCurrentText(default_name)
+            self.config_combo.blockSignals(False)
+
+            default_data = config.load_config(default_name)
+            if default_data:
+                self._apply_config_data(default_data)
+
+            self.config_list_changed.emit()
+            QMessageBox.information(self, "成功", "已清空全部自定义方案")
+        else:
+            QMessageBox.warning(self, "失败", "清空配置失败")
     
     def _get_all_task_params(self) -> dict:
         """
