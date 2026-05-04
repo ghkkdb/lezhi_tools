@@ -7,7 +7,7 @@
 该类作为门面（Facade），整合所有子配置类，确保 100% 向后兼容。
 外部代码无需任何修改即可正常运行。
 """
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, List, Union
 from pathlib import Path
 
 from .window_config import WindowConfig
@@ -18,6 +18,15 @@ from .key_config import KeyConfig
 from .path_config import PathConfig
 from .logging_config import LoggingConfig
 from .user_config import UserConfig
+
+
+def _get_task_registry_api():
+    """延迟导入任务注册表，避免配置初始化时发生循环导入。"""
+    try:
+        from src.core import task_registry
+    except ImportError:
+        from core import task_registry
+    return task_registry
 
 
 class Config:
@@ -87,7 +96,7 @@ class Config:
     @property
     def daily_tasks(self) -> list:
         """日常任务列表"""
-        return self.task.daily_tasks
+        return self._get_merged_daily_tasks()
     
     @property
     def chaguan_dt(self) -> list:
@@ -155,7 +164,16 @@ class Config:
     @property
     def task_config_definitions(self) -> dict:
         """任务配置定义"""
-        return self.task_definition.definitions
+        definitions = dict(self.task_definition.definitions)
+        registry = _get_task_registry_api()
+        for task_item in registry.get_visible_task_layout():
+            task_names = task_item if isinstance(task_item, list) else [task_item]
+            for task_name in task_names:
+                if task_name not in definitions:
+                    ui_config = registry.get_task_ui_config(task_name)
+                    if ui_config:
+                        definitions[task_name] = ui_config
+        return definitions
     
     # ==================== 方法包装器（向后兼容） ====================
     
@@ -233,7 +251,10 @@ class Config:
         返回：
             bool: 是否有配置项
         """
-        return self.task_definition.has_task_config(task_name)
+        return (
+            self.task_definition.has_task_config(task_name)
+            or _get_task_registry_api().get_task_ui_config(task_name) is not None
+        )
     
     def get_task_default_params(self, task_name: str) -> dict:
         """
@@ -245,7 +266,11 @@ class Config:
         返回：
             dict: 默认参数字典
         """
-        return self.task_definition.get_task_default_params(task_name)
+        if self.task_definition.has_task_config(task_name):
+            return self.task_definition.get_task_default_params(task_name)
+
+        task_def = self.get_task_config_definition(task_name)
+        return self.task_definition._extract_default_params(task_def.get("fields", []))
     
     def get_task_mapped_param(self, task_name: str, param_name: str, value: Any) -> Any:
         """
@@ -259,15 +284,76 @@ class Config:
         返回：
             Any: 映射后的值
         """
-        return self.task_definition.get_task_mapped_param(task_name, param_name, value)
-    
+        if self.task_definition.has_task_config(task_name):
+            return self.task_definition.get_task_mapped_param(task_name, param_name, value)
+
+        task_def = self.get_task_config_definition(task_name)
+        return self.task_definition._get_mapped_param_from_fields(
+            task_def.get("fields", []), param_name, value
+        )
+
+    def get_task_config_definition(self, task_name: str) -> dict:
+        """
+        获取任务配置定义。旧静态配置优先，注册表元信息作为补充。
+        """
+        actual_name = self.get_task_shared_config_name(task_name) or task_name
+        if actual_name in self.task_definition.definitions:
+            return self.task_definition.definitions.get(actual_name, {})
+        registry = _get_task_registry_api()
+        return registry.get_task_ui_config(actual_name) or registry.get_task_ui_config(task_name) or {}
+
+    def get_task_shared_config_name(self, task_name: str) -> Optional[str]:
+        """
+        获取任务继承的共享配置名。
+        """
+        shared_name = self.task_definition.get_shared_config_name(task_name)
+        if shared_name:
+            return shared_name
+
+        task_def = _get_task_registry_api().get_task_ui_config(task_name)
+        if task_def and "extends" in task_def:
+            return task_def["extends"]
+        return None
+
+    def _get_merged_daily_tasks(self) -> List[Union[str, List[str]]]:
+        """
+        合并旧的手写任务列表和注册表任务布局。
+        """
+        merged: List[Union[str, List[str]]] = list(self.task.daily_tasks)
+        known_names = set(self._flatten_task_layout(merged))
+
+        registry = _get_task_registry_api()
+        for task_item in registry.get_visible_task_layout():
+            if isinstance(task_item, list):
+                new_names = [name for name in task_item if name not in known_names]
+                if not new_names:
+                    continue
+                merged.append(new_names[0] if len(new_names) == 1 else new_names)
+                known_names.update(new_names)
+            elif task_item not in known_names:
+                merged.append(task_item)
+                known_names.add(task_item)
+
+        return merged
+
+    @staticmethod
+    def _flatten_task_layout(layout: List[Union[str, List[str]]]) -> List[str]:
+        """展开任务布局为任务名列表。"""
+        names: List[str] = []
+        for task_item in layout:
+            if isinstance(task_item, list):
+                names.extend(task_item)
+            else:
+                names.append(task_item)
+        return names
+
     # ==================== 用户配置属性（向后兼容） ====================
-    
+
     @property
     def current_config_name(self) -> Optional[str]:
         """当前使用的配置方案名称"""
         return self.user.current_config_name
-    
+
     @current_config_name.setter
     def current_config_name(self, value: str):
         """设置当前配置方案名称"""
@@ -301,7 +387,7 @@ class Config:
     def clear_saved_configs(self) -> bool:
         """清空所有自定义保存的配置方案，并保留默认配置。"""
         return self.user.clear_saved_configs()
-    
+
     def is_default_config(self, config_name: str) -> bool:
         """
         检查是否为默认配置

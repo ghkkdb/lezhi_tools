@@ -322,7 +322,7 @@ class TaskConfigPanel(QScrollArea):
                 if not config.has_task_config(task_item):
                     continue
                 
-                shared_name = config.task_definition.get_shared_config_name(task_item)
+                shared_name = config.get_task_shared_config_name(task_item)
                 
                 if shared_name and shared_name not in created_shared:
                     section = self._create_task_section(shared_name)
@@ -357,7 +357,7 @@ class TaskConfigPanel(QScrollArea):
             if not config.has_task_config(task_name):
                 continue
             
-            shared_name = config.task_definition.get_shared_config_name(task_name)
+            shared_name = config.get_task_shared_config_name(task_name)
             
             if shared_name and shared_name not in created_shared:
                 section = self._create_task_section(shared_name)
@@ -395,7 +395,7 @@ class TaskConfigPanel(QScrollArea):
             }}
         """)
         
-        task_def = config.task_config_definitions.get(task_name, {})
+        task_def = config.get_task_config_definition(task_name)
         
         if "section_width" in task_def:
             frame.setFixedWidth(task_def["section_width"])
@@ -1045,14 +1045,7 @@ class TaskConfigPanel(QScrollArea):
     def _reset_to_defaults(self):
         """重置为默认值"""
         for task_name, widgets in self._flat_widgets.items():
-            task_def = config.task_config_definitions.get(task_name, {})
-            fields = task_def.get("fields", [])
-            
-            default_params = {}
-            for field in fields:
-                field_name = field.get("name")
-                if field_name and field_name in widgets:
-                    default_params[field_name] = field.get("default", "")
+            default_params = config.get_task_default_params(task_name)
             
             for field_name, widget in widgets.items():
                 if field_name in default_params:

@@ -17,7 +17,21 @@
     task_func = get_task("每日一卦")
 """
 import threading
-from typing import Callable, Dict, Optional, List
+import logging
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional, List, Union
+
+
+@dataclass
+class TaskMeta:
+    """任务元信息。"""
+    name: str
+    func: Callable
+    ui_config: Optional[Dict[str, Any]] = None
+    category: str = "日常任务"
+    order: int = 999
+    row: Optional[str] = None
+    enabled: bool = True
 
 
 class _TaskRegistry:
@@ -46,10 +60,19 @@ class _TaskRegistry:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
-                    cls._instance._tasks: Dict[str, Callable] = {}
+                    cls._instance._tasks: Dict[str, TaskMeta] = {}
         return cls._instance
-    
-    def register(self, name: str, func: Callable) -> None:
+
+    def register(
+        self,
+        name: str,
+        func: Callable,
+        ui_config: Optional[Dict[str, Any]] = None,
+        category: str = "日常任务",
+        order: int = 999,
+        row: Optional[str] = None,
+        enabled: bool = True,
+    ) -> None:
         """
         注册任务函数
         
@@ -58,7 +81,17 @@ class _TaskRegistry:
             func: 任务函数
         """
         with self._lock:
-            self._tasks[name] = func
+            if name in self._tasks:
+                logging.getLogger(__name__).warning("任务 [%s] 重复注册，后注册的实现将覆盖前者", name)
+            self._tasks[name] = TaskMeta(
+                name=name,
+                func=func,
+                ui_config=ui_config,
+                category=category,
+                order=order,
+                row=row,
+                enabled=enabled,
+            )
     
     def get(self, name: str) -> Optional[Callable]:
         """
@@ -71,8 +104,14 @@ class _TaskRegistry:
             Callable | None: 任务函数，未找到返回 None
         """
         with self._lock:
+            meta = self._tasks.get(name)
+            return meta.func if meta else None
+
+    def get_meta(self, name: str) -> Optional[TaskMeta]:
+        """获取任务元信息。"""
+        with self._lock:
             return self._tasks.get(name)
-    
+
     def get_all_names(self) -> List[str]:
         """
         获取所有已注册的任务名称
@@ -83,11 +122,23 @@ class _TaskRegistry:
         with self._lock:
             return list(self._tasks.keys())
 
+    def get_all_meta(self) -> List[TaskMeta]:
+        """获取所有任务元信息。"""
+        with self._lock:
+            return list(self._tasks.values())
+
 
 _registry = _TaskRegistry()
 
 
-def register_task(name: str) -> Callable:
+def register_task(
+    name: str,
+    ui_config: Optional[Dict[str, Any]] = None,
+    category: str = "日常任务",
+    order: int = 999,
+    row: Optional[str] = None,
+    enabled: bool = True,
+) -> Callable:
     """
     任务注册装饰器
     
@@ -105,7 +156,15 @@ def register_task(name: str) -> Callable:
             ...
     """
     def decorator(func: Callable) -> Callable:
-        _registry.register(name, func)
+        _registry.register(
+            name=name,
+            func=func,
+            ui_config=ui_config,
+            category=category,
+            order=order,
+            row=row,
+            enabled=enabled,
+        )
         return func
     return decorator
 
@@ -145,3 +204,48 @@ def get_all_task_names() -> List[str]:
             print(f"已注册任务: {name}")
     """
     return _registry.get_all_names()
+
+
+def get_task_meta(name: str) -> Optional[TaskMeta]:
+    """获取指定任务的元信息。"""
+    return _registry.get_meta(name)
+
+
+def get_all_task_meta() -> List[TaskMeta]:
+    """获取所有任务元信息。"""
+    return _registry.get_all_meta()
+
+
+def get_task_ui_config(name: str) -> Optional[Dict[str, Any]]:
+    """获取指定任务在注册时声明的 UI 配置。"""
+    meta = get_task_meta(name)
+    return meta.ui_config if meta else None
+
+
+def get_visible_task_layout() -> List[Union[str, List[str]]]:
+    """
+    获取由注册表生成的可见任务布局。
+
+    同 row 的任务会被合并为一行列表；未设置 row 的任务保持独立项。
+    """
+    metas = [meta for meta in get_all_task_meta() if meta.enabled]
+    metas.sort(key=lambda item: (item.category, item.order, item.name))
+
+    layout: List[Union[str, List[str]]] = []
+    row_indexes: Dict[str, int] = {}
+
+    for meta in metas:
+        if meta.row:
+            if meta.row in row_indexes:
+                item = layout[row_indexes[meta.row]]
+                if isinstance(item, list):
+                    item.append(meta.name)
+                else:
+                    layout[row_indexes[meta.row]] = [item, meta.name]
+            else:
+                row_indexes[meta.row] = len(layout)
+                layout.append([meta.name])
+        else:
+            layout.append(meta.name)
+
+    return layout
