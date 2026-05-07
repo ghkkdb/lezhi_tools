@@ -27,6 +27,11 @@ ENV/
 env/
 .venv/
 
+# Node / frontend
+node_modules/
+admin/node_modules/
+admin/dist/
+
 # IDE
 .idea/
 *.swp
@@ -48,6 +53,18 @@ logs/
 *.log
 *.tmp
 *.temp
+
+# Local runtime data
+config/client_identity.json
+config/license_cache.json
+server/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Environment secrets
+.env
+.env.*
 
 # 系统文件
 .DS_Store

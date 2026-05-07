@@ -13,12 +13,14 @@
     - 底部：运行控制区（窗口选择 + 操作按钮 + 运行日志）
 """
 import sys
+import time
+import webbrowser
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton,
                              QTextEdit, QGroupBox, QStackedWidget,
                              QFrame, QMenuBar, QMenu,
-                             QSizePolicy, QMessageBox)
+                             QSizePolicy, QMessageBox, QLineEdit)
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, pyqtProperty
 from PyQt5.QtGui import QFont, QCloseEvent
 from src.config import config
@@ -35,6 +37,10 @@ from src.ui.panels.multi_window_panel import MultiWindowControlPage
 from src.ui.styles import ColorScheme
 from src.utils.logger import LogManager, LogLevel, get_logger, strip_ui_log_context
 from src.utils.win_api import release_tracked_inputs
+from src.config.app_config import APP_VERSION
+from src.services import license_client, telemetry_client, update_client
+from src.services.license_client import LicenseState
+from src.services.update_client import UpdateInfo
 
 
 class ClassicScriptUI(QMainWindow):
@@ -53,7 +59,7 @@ class ClassicScriptUI(QMainWindow):
         config_manager: 配置管理器实例
     """
     
-    def __init__(self):
+    def __init__(self, license_state: LicenseState = None, update_info: UpdateInfo = None):
         """
         初始化主界面
         """
@@ -68,6 +74,10 @@ class ClassicScriptUI(QMainWindow):
         self.task_list_panel = None
         self.task_config_panel = None
         self.multi_window_page = None
+        self.license_state = license_state or LicenseState(ok=False, message="卡密未验证或已失效")
+        self.update_info = update_info
+        self._task_run_started_at = None
+        self._task_run_names = []
         
         # 获取状态管理器和配置管理器实例
         self.state_manager = StateManager.get_instance()
@@ -79,6 +89,9 @@ class ClassicScriptUI(QMainWindow):
         
         # 连接状态管理器信号（必须在 init_ui 之后）
         self._connect_state_signals()
+        self._refresh_license_ui()
+        if self.update_info and self.update_info.has_update:
+            QTimer.singleShot(200, self._show_update_info)
     
     def _connect_state_signals(self):
         """
@@ -168,7 +181,8 @@ class ClassicScriptUI(QMainWindow):
             self._colors,
             resize_callback=self.window_picker.ensure_target_window_size,
             lock_callback=self.window_picker.lock_window_size,
-            unlock_callback=self.window_picker.unlock_window_size
+            unlock_callback=self.window_picker.unlock_window_size,
+            auth_checker=self._ensure_authorized_for_tasks
         )
         self.multi_window_page.status_changed.connect(self._refresh_multi_status_log)
         if self.task_config_panel is not None:
@@ -297,7 +311,7 @@ class ClassicScriptUI(QMainWindow):
     def _show_about(self):
         """显示关于对话框"""
         from PyQt5.QtWidgets import QMessageBox
-        QMessageBox.about(self, "关于", "游戏辅助工具 v1.0\n\n基于PyQt5开发的桌面辅助工具")
+        QMessageBox.about(self, "关于", f"游戏辅助工具 v{APP_VERSION}\n\n基于PyQt5开发的桌面辅助工具")
 
     def _on_tab_changed(self, index):
         """
@@ -317,15 +331,134 @@ class ClassicScriptUI(QMainWindow):
         """
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        label = QLabel("基础设置功能开发中...")
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: #999; font-size: 14px;")
-        layout.addWidget(label)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        auth_group = QGroupBox("卡密授权")
+        auth_layout = QVBoxLayout(auth_group)
+        auth_layout.setContentsMargins(12, 14, 12, 12)
+        auth_layout.setSpacing(8)
+
+        self.license_status_label = QLabel("")
+        self.license_status_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
+        auth_layout.addWidget(self.license_status_label)
+
+        input_row = QHBoxLayout()
+        self.license_key_input = QLineEdit()
+        self.license_key_input.setPlaceholderText("请输入卡密")
+        self.license_key_input.setText(license_client.get_cached_license_key())
+        self.license_key_input.setEchoMode(QLineEdit.Password)
+        input_row.addWidget(self.license_key_input, stretch=1)
+
+        self.verify_license_btn = QPushButton("验证卡密")
+        self.verify_license_btn.clicked.connect(self._activate_license_from_ui)
+        input_row.addWidget(self.verify_license_btn)
+        auth_layout.addLayout(input_row)
+        layout.addWidget(auth_group)
+
+        update_group = QGroupBox("版本更新")
+        update_layout = QVBoxLayout(update_group)
+        update_layout.setContentsMargins(12, 14, 12, 12)
+        update_layout.setSpacing(8)
+
+        self.version_label = QLabel(f"当前版本: {APP_VERSION}")
+        self.version_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
+        update_layout.addWidget(self.version_label)
+
+        update_row = QHBoxLayout()
+        self.update_status_label = QLabel("启动时会自动检查新版本。")
+        self.update_status_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
+        update_row.addWidget(self.update_status_label, stretch=1)
+        self.check_update_btn = QPushButton("检查更新")
+        self.check_update_btn.clicked.connect(self._check_update_from_ui)
+        update_row.addWidget(self.check_update_btn)
+        update_layout.addLayout(update_row)
+        layout.addWidget(update_group)
         layout.addStretch()
         
         return page
+
+    def _refresh_license_ui(self):
+        if not hasattr(self, "license_status_label"):
+            return
+
+        if self.license_state.ok:
+            expire = self.license_state.expire_at or "未知"
+            self.license_status_label.setText(f"授权有效，到期时间: {expire}")
+            self.license_status_label.setStyleSheet(f"color: {self._colors['success']}; font-weight: 600;")
+        else:
+            self.license_status_label.setText(self.license_state.message or "卡密未验证或已失效")
+            self.license_status_label.setStyleSheet(f"color: {self._colors['danger']}; font-weight: 600;")
+
+    def _activate_license_from_ui(self):
+        key = self.license_key_input.text().strip()
+        self.verify_license_btn.setEnabled(False)
+        self.license_status_label.setText("正在验证卡密...")
+        QApplication.processEvents()
+
+        self.license_state = license_client.activate_license(key)
+        telemetry_client.track(
+            "license_activate",
+            {"message": self.license_state.message},
+            success=self.license_state.ok,
+        )
+        self.verify_license_btn.setEnabled(True)
+        self._refresh_license_ui()
+
+    def _check_update_from_ui(self):
+        self.check_update_btn.setEnabled(False)
+        self.update_status_label.setText("正在检查更新...")
+        QApplication.processEvents()
+
+        self.update_info = update_client.check_update()
+        telemetry_client.track(
+            "update_check",
+            {
+                "has_update": self.update_info.has_update,
+                "latest_version": self.update_info.latest_version,
+                "message": self.update_info.message,
+            },
+            success=not bool(self.update_info.message),
+        )
+        self.check_update_btn.setEnabled(True)
+        self._show_update_info(from_manual_check=True)
+
+    def _show_update_info(self, from_manual_check: bool = False):
+        if not self.update_info:
+            return
+
+        if self.update_info.has_update:
+            latest = self.update_info.latest_version or "未知"
+            self.update_status_label.setText(f"发现新版本: {latest}")
+            message = (
+                f"当前版本: {APP_VERSION}\n"
+                f"最新版本: {latest}\n\n"
+                f"更新说明:\n{self.update_info.notes or '无'}\n\n"
+                f"下载地址:\n{self.update_info.download_url or '未提供'}\n\n"
+                f"SHA256:\n{self.update_info.sha256 or '未提供'}"
+            )
+            box = QMessageBox(self)
+            box.setWindowTitle("发现新版本")
+            box.setText(message)
+            open_btn = box.addButton("打开下载地址", QMessageBox.AcceptRole)
+            box.addButton("稍后处理", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is open_btn and self.update_info.download_url:
+                webbrowser.open(self.update_info.download_url)
+        else:
+            text = self.update_info.message or "当前已是最新版本"
+            if hasattr(self, "update_status_label"):
+                self.update_status_label.setText(text)
+            if from_manual_check:
+                QMessageBox.information(self, "检查更新", text)
+
+    def _ensure_authorized_for_tasks(self) -> bool:
+        if self.license_state and self.license_state.ok:
+            return True
+        message = "卡密未验证或已失效"
+        self.logger.warning(message)
+        QMessageBox.warning(self, "授权失效", message)
+        return False
 
     def _create_placeholder_page(self, title):
         """
@@ -404,6 +537,9 @@ class ClassicScriptUI(QMainWindow):
             self.logger.info("多开控制页请使用对应窗口行的开始按钮")
             return
 
+        if not self._ensure_authorized_for_tasks():
+            return
+
         if not self.state_manager.bound_hwnd:
             self.logger.warning("请先通过瞄准镜按钮绑定游戏窗口")
             return
@@ -427,6 +563,13 @@ class ClassicScriptUI(QMainWindow):
         self.window_picker.lock_window_size(self.state_manager.bound_hwnd)
         
         task_params = self.config_manager.get_task_params(self.task_config_panel)
+        self._task_run_started_at = time.monotonic()
+        self._task_run_names = list(selected)
+        telemetry_client.track(
+            "task_start",
+            {"mode": "single", "task_count": len(selected), "tasks": selected},
+            success=True,
+        )
         
         self.worker = ScriptWorker(
             selected,
@@ -506,6 +649,13 @@ class ClassicScriptUI(QMainWindow):
         """
         if result is None:
             result = False
+        success = result is True or (isinstance(result, dict) and all(result.values()))
+        telemetry_client.track(
+            "task_finish" if success else "task_error",
+            {"mode": "single", "result": result},
+            task_name=task_name,
+            success=success,
+        )
         
         if result is False:
             self.logger.warning(f"任务 [{task_name}] 执行失败或被中止")
@@ -547,6 +697,16 @@ class ClassicScriptUI(QMainWindow):
         bound_hwnd = self.state_manager.bound_hwnd
         if bound_hwnd:
             self.window_picker.unlock_window_size(bound_hwnd)
+        if self._task_run_started_at is not None:
+            duration_ms = int((time.monotonic() - self._task_run_started_at) * 1000)
+            telemetry_client.track(
+                "task_finish",
+                {"mode": "single_summary", "tasks": self._task_run_names},
+                success=True,
+                duration_ms=duration_ms,
+            )
+        self._task_run_started_at = None
+        self._task_run_names = []
         self.state_manager.set_button_state(ButtonState.IDLE)
 
     def closeEvent(self, event: QCloseEvent):

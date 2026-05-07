@@ -1,0 +1,2 @@
+"""FastAPI license server package."""
+

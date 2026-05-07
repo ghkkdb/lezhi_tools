@@ -225,3 +225,9 @@ python -m pytest tests\test_logger.py -q
 - 仓库中存在 `__pycache__` 和运行日志等生成文件。
 - 根目录有一些临时或试验脚本，例如 `replace_sleep.py`、`temp_replace.py`、`test_dome.py`。
 - 当前 git 工作区在读取时没有发现未提交改动。
+
+## 打包方式
+
+- 本项目桌面端打包方式使用 Nuitka。
+- 维护打包脚本或发布流程时，应优先围绕 Nuitka 参数、资源包含、依赖收集和 Windows 可执行文件产物进行说明。
+- 不要把 PyInstaller 作为当前默认打包方案；历史说明中如出现 PyInstaller，仅作为旧上下文或路径兼容说明处理。

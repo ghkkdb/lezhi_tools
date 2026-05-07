@@ -5,6 +5,7 @@
 多开页只负责窗口绑定、选择已保存任务方案、独立启停和分窗口日志。
 具体任务勾选与参数配置仍由“日常任务”页保存为任务方案。
 """
+import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 import win32api
@@ -35,6 +36,7 @@ from src.ui.panels.log_panel import LogPanel
 from src.ui.widgets import UnbindButton
 from src.utils.logger import strip_ui_log_context
 from src.utils.win_api import release_tracked_inputs
+from src.services import telemetry_client
 
 
 class WindowLogDialog(QDialog):
@@ -69,6 +71,7 @@ class MultiWindowSlotPanel(QFrame):
         resize_callback: Optional[Callable[[int], bool]] = None,
         lock_callback: Optional[Callable[[int], None]] = None,
         unlock_callback: Optional[Callable[[int], None]] = None,
+        auth_checker: Optional[Callable[[], bool]] = None,
         parent=None
     ):
         super().__init__(parent)
@@ -83,6 +86,9 @@ class MultiWindowSlotPanel(QFrame):
         self._resize_callback = resize_callback
         self._lock_callback = lock_callback
         self._unlock_callback = unlock_callback
+        self._auth_checker = auth_checker
+        self._run_started_at = None
+        self._run_tasks: List[str] = []
 
         self._setup_ui()
 
@@ -258,6 +264,10 @@ class MultiWindowSlotPanel(QFrame):
             self._stop_worker()
             return
 
+        if self._auth_checker and not self._auth_checker():
+            self._append_local_log(f"[{self.slot_name}] 卡密未验证或已失效")
+            return
+
         if not self._bound_hwnd:
             self._append_local_log(f"[{self.slot_name}] 请先绑定游戏窗口")
             return
@@ -281,8 +291,21 @@ class MultiWindowSlotPanel(QFrame):
         self._worker = ScriptWorker(selected, self._bound_hwnd, task_params, context)
         self._worker.finished_sig.connect(self._on_worker_finished)
         self._worker.task_completed.connect(self._on_task_completed)
+        self._run_started_at = time.monotonic()
+        self._run_tasks = list(selected)
         self._set_button_state(ButtonState.RUNNING)
         self._worker.start()
+        telemetry_client.track(
+            "task_start",
+            {
+                "mode": "multi",
+                "slot": self.slot_name,
+                "task_count": len(selected),
+                "tasks": selected,
+                "config_name": self.config_combo.currentText(),
+            },
+            success=True,
+        )
         self._append_local_log(
             f"[{self.slot_name}] 使用方案 [{self.config_combo.currentText()}] 启动: "
             f"{', '.join(selected)}"
@@ -378,12 +401,30 @@ class MultiWindowSlotPanel(QFrame):
                 self._append_local_log(f"[{self.slot_name}] 继续失败: {exc}")
 
     def _on_worker_finished(self):
+        duration_ms = None
+        if self._run_started_at is not None:
+            duration_ms = int((time.monotonic() - self._run_started_at) * 1000)
+        telemetry_client.track(
+            "task_finish",
+            {"mode": "multi_summary", "slot": self.slot_name, "tasks": self._run_tasks},
+            success=True,
+            duration_ms=duration_ms,
+        )
+        self._run_started_at = None
+        self._run_tasks = []
         if self._bound_hwnd and self._unlock_callback:
             self._unlock_callback(self._bound_hwnd)
         self._set_button_state(ButtonState.IDLE)
         self._append_local_log(f"[{self.slot_name}] 当前任务线程已结束")
 
     def _on_task_completed(self, task_name: str, result):
+        success = result is True or (isinstance(result, dict) and all(result.values()))
+        telemetry_client.track(
+            "task_finish" if success else "task_error",
+            {"mode": "multi", "slot": self.slot_name, "result": result},
+            task_name=task_name,
+            success=success,
+        )
         if result:
             self._append_local_log(f"[{self.slot_name}] 任务 [{task_name}] 执行完成")
         else:
@@ -541,6 +582,7 @@ class MultiWindowControlPage(QWidget):
         resize_callback: Optional[Callable[[int], bool]] = None,
         lock_callback: Optional[Callable[[int], None]] = None,
         unlock_callback: Optional[Callable[[int], None]] = None,
+        auth_checker: Optional[Callable[[], bool]] = None,
         parent=None
     ):
         super().__init__(parent)
@@ -548,6 +590,7 @@ class MultiWindowControlPage(QWidget):
         self._resize_callback = resize_callback
         self._lock_callback = lock_callback
         self._unlock_callback = unlock_callback
+        self._auth_checker = auth_checker
         self._single_task_running = False
         self._slots: List[MultiWindowSlotPanel] = []
         self._setup_ui()
@@ -622,6 +665,7 @@ class MultiWindowControlPage(QWidget):
             self._resize_callback,
             self._lock_callback,
             self._unlock_callback,
+            self._auth_checker,
             self
         )
         slot.status_changed.connect(self.status_changed.emit)
@@ -725,6 +769,8 @@ class MultiWindowControlPage(QWidget):
     def start_all_windows(self):
         if self._single_task_running:
             self._show_single_task_prompt()
+            return
+        if self._auth_checker and not self._auth_checker():
             return
 
         started_count = 0
