@@ -66,6 +66,26 @@ def get_log_context() -> str:
     return getattr(_log_context, "label", "")
 
 
+def strip_ui_log_context(message: str) -> str:
+    """Remove hidden routing context from UI log text."""
+    if not message.startswith("["):
+        return message
+
+    time_end = message.find("]")
+    if time_end != 9:
+        return message
+
+    context_start = time_end + 2
+    if len(message) <= context_start or message[context_start] != "[":
+        return message
+
+    context_end = message.find("]", context_start)
+    if context_end == -1:
+        return message
+
+    return message[:time_end + 1] + message[context_end + 1:]
+
+
 class LogLevel(IntEnum):
     """
     日志级别枚举

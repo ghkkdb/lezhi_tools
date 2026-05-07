@@ -221,6 +221,27 @@ class WindowPicker(QObject):
             print(f"调整窗口大小失败: {str(e)}")
             return False
 
+    def is_target_window_size(self, hwnd) -> bool:
+        """Return whether the window currently matches the configured size."""
+        try:
+            if not win32gui.IsWindow(hwnd):
+                return False
+
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            return (
+                right - left == self.target_width and
+                bottom - top == self.target_height
+            )
+        except Exception as e:
+            print(f"妫€鏌ョ獥鍙ｅぇ灏忓け璐? {str(e)}")
+            return False
+
+    def ensure_target_window_size(self, hwnd) -> bool:
+        """Resize the window only when it does not match the configured size."""
+        if self.is_target_window_size(hwnd):
+            return True
+        return self.resize_window_keep_position(hwnd)
+
     def capture_region(self, hwnd, adjust_window: bool = True):
         """
         截取窗口指定区域的图片

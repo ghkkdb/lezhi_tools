@@ -11,7 +11,7 @@ import win32api
 import win32con
 import win32gui
 
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFrame,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -32,6 +33,7 @@ from src.core.state_manager import ButtonState
 from src.core.worker import ScriptWorker
 from src.ui.panels.log_panel import LogPanel
 from src.ui.widgets import UnbindButton
+from src.utils.logger import strip_ui_log_context
 from src.utils.win_api import release_tracked_inputs
 
 
@@ -64,6 +66,8 @@ class MultiWindowSlotPanel(QFrame):
         hwnd: int,
         img,
         colors: Dict[str, str],
+        resize_callback: Optional[Callable[[int], bool]] = None,
+        lock_callback: Optional[Callable[[int], None]] = None,
         unlock_callback: Optional[Callable[[int], None]] = None,
         parent=None
     ):
@@ -76,6 +80,8 @@ class MultiWindowSlotPanel(QFrame):
         self._button_state = ButtonState.IDLE
         self._log_dialog: Optional[WindowLogDialog] = None
         self._preview_img = img
+        self._resize_callback = resize_callback
+        self._lock_callback = lock_callback
         self._unlock_callback = unlock_callback
 
         self._setup_ui()
@@ -261,6 +267,13 @@ class MultiWindowSlotPanel(QFrame):
             self._append_local_log(f"[{self.slot_name}] 当前任务方案没有勾选任务")
             return
 
+        if self._resize_callback and not self._resize_callback(self._bound_hwnd):
+            self._append_local_log(f"[{self.slot_name}] 窗口大小调整失败，任务未启动")
+            return
+
+        if self._lock_callback:
+            self._lock_callback(self._bound_hwnd)
+
         self._ensure_log_dialog(show=self.auto_log_checkbox.isChecked())
         self._log_dialog.log_panel.clear()
 
@@ -317,7 +330,9 @@ class MultiWindowSlotPanel(QFrame):
                 config.y,
                 win32con.SWP_SHOWWINDOW,
             )
-            self._ensure_log_dialog(show=True)
+            if self._log_dialog is not None:
+                self._move_log_dialog_to_bound_window()
+                self._raise_log_dialog_above_bound_window()
             return True
         except Exception as exc:
             self._append_local_log(f"[{self.slot_name}] 一键整理失败: {exc}")
@@ -363,6 +378,8 @@ class MultiWindowSlotPanel(QFrame):
                 self._append_local_log(f"[{self.slot_name}] 继续失败: {exc}")
 
     def _on_worker_finished(self):
+        if self._bound_hwnd and self._unlock_callback:
+            self._unlock_callback(self._bound_hwnd)
         self._set_button_state(ButtonState.IDLE)
         self._append_local_log(f"[{self.slot_name}] 当前任务线程已结束")
 
@@ -434,13 +451,37 @@ class MultiWindowSlotPanel(QFrame):
         except Exception:
             pass
 
+    def _raise_log_dialog_above_bound_window(self):
+        if self._log_dialog is None or not self._bound_hwnd:
+            return
+
+        try:
+            if not win32gui.IsWindow(self._bound_hwnd):
+                return
+
+            log_hwnd = int(self._log_dialog.winId())
+            if not win32gui.IsWindow(log_hwnd):
+                return
+
+            win32gui.SetWindowPos(
+                log_hwnd,
+                win32con.HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+            )
+        except Exception:
+            pass
+
     def _append_local_log(self, message: str):
         if self._log_dialog is not None:
             self._log_dialog.append_message(message)
 
     def append_external_log(self, message: str) -> bool:
         if self.context_label and f"[{self.context_label}]" in message:
-            self._ensure_log_dialog(show=False).append_message(message)
+            self._ensure_log_dialog(show=False).append_message(strip_ui_log_context(message))
             return True
         return False
 
@@ -497,12 +538,17 @@ class MultiWindowControlPage(QWidget):
     def __init__(
         self,
         colors: Dict[str, str],
+        resize_callback: Optional[Callable[[int], bool]] = None,
+        lock_callback: Optional[Callable[[int], None]] = None,
         unlock_callback: Optional[Callable[[int], None]] = None,
         parent=None
     ):
         super().__init__(parent)
         self._colors = colors
+        self._resize_callback = resize_callback
+        self._lock_callback = lock_callback
         self._unlock_callback = unlock_callback
+        self._single_task_running = False
         self._slots: List[MultiWindowSlotPanel] = []
         self._setup_ui()
 
@@ -521,26 +567,31 @@ class MultiWindowControlPage(QWidget):
 
         self.refresh_btn = QPushButton("刷新方案")
         self.refresh_btn.setFixedSize(96, 30)
+        self.refresh_btn.installEventFilter(self)
         self.refresh_btn.clicked.connect(self.refresh_config_names)
         header.addWidget(self.refresh_btn)
 
         self.arrange_all_btn = QPushButton("一键整理")
         self.arrange_all_btn.setFixedSize(96, 30)
+        self.arrange_all_btn.installEventFilter(self)
         self.arrange_all_btn.clicked.connect(self.arrange_all_windows)
         header.addWidget(self.arrange_all_btn)
 
         self.start_all_btn = QPushButton("一键启动")
         self.start_all_btn.setFixedSize(96, 30)
+        self.start_all_btn.installEventFilter(self)
         self.start_all_btn.clicked.connect(self.start_all_windows)
         header.addWidget(self.start_all_btn)
 
         self.stop_all_btn = QPushButton("一键停止")
         self.stop_all_btn.setFixedSize(96, 30)
+        self.stop_all_btn.installEventFilter(self)
         self.stop_all_btn.clicked.connect(self.stop_all_windows)
         header.addWidget(self.stop_all_btn)
 
         self.unbind_all_btn = QPushButton("一键解绑")
         self.unbind_all_btn.setFixedSize(96, 30)
+        self.unbind_all_btn.installEventFilter(self)
         self.unbind_all_btn.clicked.connect(self.unbind_all_windows)
         header.addWidget(self.unbind_all_btn)
         layout.addLayout(header)
@@ -568,15 +619,43 @@ class MultiWindowControlPage(QWidget):
             hwnd,
             img,
             self._colors,
+            self._resize_callback,
+            self._lock_callback,
             self._unlock_callback,
             self
         )
         slot.status_changed.connect(self.status_changed.emit)
         slot.unbound.connect(self._remove_slot)
+        self._install_slot_button_filters(slot)
         self._slots.append(slot)
         self.rows_layout.insertWidget(self.rows_layout.count() - 1, slot)
         self.status_changed.emit()
         return True
+
+    def _install_slot_button_filters(self, slot: MultiWindowSlotPanel):
+        for button in (
+            slot.start_btn,
+            slot.pause_btn,
+            slot.unbind_btn,
+            slot.open_log_btn,
+        ):
+            button.installEventFilter(self)
+
+    def set_single_task_running(self, running: bool):
+        self._single_task_running = running
+
+    def _show_single_task_prompt(self):
+        QMessageBox.information(self, "提示", "请停止当前单开任务")
+
+    def eventFilter(self, watched, event):
+        if (
+            self._single_task_running
+            and isinstance(watched, QPushButton)
+            and event.type() == QEvent.MouseButtonPress
+        ):
+            self._show_single_task_prompt()
+            return True
+        return super().eventFilter(watched, event)
 
     def _remove_slot(self, slot: MultiWindowSlotPanel):
         if slot not in self._slots:
@@ -601,6 +680,10 @@ class MultiWindowControlPage(QWidget):
         self.status_changed.emit()
 
     def arrange_all_windows(self):
+        if self._single_task_running:
+            self._show_single_task_prompt()
+            return
+
         bound_slots = [slot for slot in self._slots if slot.is_bound]
         if not bound_slots:
             return
@@ -640,6 +723,10 @@ class MultiWindowControlPage(QWidget):
             self.status_changed.emit()
 
     def start_all_windows(self):
+        if self._single_task_running:
+            self._show_single_task_prompt()
+            return
+
         started_count = 0
         for slot in self._slots:
             if not slot.is_bound:
@@ -651,6 +738,10 @@ class MultiWindowControlPage(QWidget):
             self.status_changed.emit()
 
     def stop_all_windows(self):
+        if self._single_task_running:
+            self._show_single_task_prompt()
+            return
+
         stopped_count = 0
         for slot in self._slots:
             if slot.stop_task():
@@ -660,6 +751,10 @@ class MultiWindowControlPage(QWidget):
             self.status_changed.emit()
 
     def unbind_all_windows(self):
+        if self._single_task_running:
+            self._show_single_task_prompt()
+            return
+
         for slot in list(self._slots):
             slot.unbind_window()
 

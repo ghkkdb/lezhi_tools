@@ -33,7 +33,7 @@ from src.ui.panels.task_list_panel import TaskListPanel
 from src.ui.panels.task_config_panel import TaskConfigPanel
 from src.ui.panels.multi_window_panel import MultiWindowControlPage
 from src.ui.styles import ColorScheme
-from src.utils.logger import LogManager, LogLevel, get_logger
+from src.utils.logger import LogManager, LogLevel, get_logger, strip_ui_log_context
 from src.utils.win_api import release_tracked_inputs
 
 
@@ -166,6 +166,8 @@ class ClassicScriptUI(QMainWindow):
         self.pages.addWidget(self._create_daily_page())
         self.multi_window_page = MultiWindowControlPage(
             self._colors,
+            resize_callback=self.window_picker.ensure_target_window_size,
+            lock_callback=self.window_picker.lock_window_size,
             unlock_callback=self.window_picker.unlock_window_size
         )
         self.multi_window_page.status_changed.connect(self._refresh_multi_status_log)
@@ -238,7 +240,7 @@ class ClassicScriptUI(QMainWindow):
                 self._refresh_multi_status_log()
                 return
 
-        self.log_panel.append_message(message)
+        self.log_panel.append_message(strip_ui_log_context(message))
 
     def _refresh_multi_status_log(self):
         """
@@ -417,7 +419,12 @@ class ClassicScriptUI(QMainWindow):
             return
 
         self.log_panel.clear()
+        if not self.window_picker.ensure_target_window_size(self.state_manager.bound_hwnd):
+            self.logger.warning("窗口大小调整失败，任务未启动")
+            return
+
         self.state_manager.set_button_state(ButtonState.RUNNING)
+        self.window_picker.lock_window_size(self.state_manager.bound_hwnd)
         
         task_params = self.config_manager.get_task_params(self.task_config_panel)
         
@@ -486,6 +493,8 @@ class ClassicScriptUI(QMainWindow):
             state: 目标状态（ButtonState 枚举值）
         """
         self.bottom_control_panel.update_state(state, self.state_manager.bound_hwnd)
+        if self.multi_window_page is not None:
+            self.multi_window_page.set_single_task_running(state != ButtonState.IDLE)
 
     def _on_task_completed(self, task_name: str, result):
         """
@@ -535,6 +544,9 @@ class ClassicScriptUI(QMainWindow):
         
         当后台线程完成时恢复按钮状态到初始状态
         """
+        bound_hwnd = self.state_manager.bound_hwnd
+        if bound_hwnd:
+            self.window_picker.unlock_window_size(bound_hwnd)
         self.state_manager.set_button_state(ButtonState.IDLE)
 
     def closeEvent(self, event: QCloseEvent):
