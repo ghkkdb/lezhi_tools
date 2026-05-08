@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """版本检查和更新提醒数据。"""
 from dataclasses import dataclass
-from typing import Optional
 
 from src.config.app_config import APP_VERSION
 from src.services.http_client import ApiError, request_json
@@ -31,7 +30,9 @@ def check_update() -> UpdateInfo:
     try:
         data = request_json("GET", "/api/update/latest", query={"version": APP_VERSION})
     except ApiError as exc:
-        return UpdateInfo(message=f"检查更新失败: {exc}")
+        if exc.status_code == 404:
+            return UpdateInfo(message="暂无可用更新版本")
+        return UpdateInfo(message=f"检查更新失败：{exc}")
 
     data = data.get("item") or data
     latest = str(data.get("latest_version") or data.get("version") or "")
@@ -44,6 +45,6 @@ def check_update() -> UpdateInfo:
         latest_version=latest,
         download_url=str(data.get("download_url") or data.get("package_url") or ""),
         sha256=str(data.get("sha256") or ""),
-        notes=str(data.get("notes") or ""),
+        notes=str(data.get("notes") or data.get("changelog") or ""),
         message=str(data.get("message") or ""),
     )

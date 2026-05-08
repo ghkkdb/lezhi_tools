@@ -2,17 +2,27 @@
   <LoginPage v-if="!isAuthed" @login="handleLogin" />
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <h1>Lezhi Admin</h1>
-      <button
-        v-for="item in navItems"
-        :key="item.key"
-        type="button"
-        :class="{ active: activePage === item.key }"
-        @click="activePage = item.key"
-      >
-        <span>{{ item.icon }}</span>{{ item.label }}
-      </button>
-      <button type="button" class="logout-btn" @click="logout">退出登录</button>
+      <div class="brand">
+        <div class="brand-mark">LZ</div>
+        <div>
+          <strong>Lezhi Admin</strong>
+          <span>授权与活跃看板</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="后台导航">
+        <button
+          v-for="item in navItems"
+          :key="item.key"
+          type="button"
+          :class="{ active: activePage === item.key }"
+          @click="activePage = item.key"
+        >
+          <span>{{ item.icon }}</span>{{ item.label }}
+        </button>
+      </nav>
+
+      <button type="button" class="logout" @click="logout">退出登录</button>
     </aside>
     <main class="content">
       <component :is="currentPage" />
@@ -31,11 +41,11 @@ import VersionsPage from './pages/VersionsPage.vue';
 import EventLogsPage from './pages/EventLogsPage.vue';
 
 const navItems = [
-  { key: 'dashboard', label: '仪表盘', icon: '[]', component: DashboardPage },
-  { key: 'licenses', label: '卡密管理', icon: '##', component: CardKeysPage },
-  { key: 'clients', label: '客户端绑定', icon: '<>', component: ClientBindingsPage },
-  { key: 'releases', label: '版本发布', icon: '>>', component: VersionsPage },
-  { key: 'events', label: '事件日志', icon: '--', component: EventLogsPage }
+  { key: 'dashboard', label: '仪表盘', icon: '总', component: DashboardPage },
+  { key: 'licenses', label: '卡密管理', icon: '卡', component: CardKeysPage },
+  { key: 'clients', label: '客户端绑定', icon: '端', component: ClientBindingsPage },
+  { key: 'releases', label: '版本发布', icon: '版', component: VersionsPage },
+  { key: 'events', label: '活跃日志', icon: '活', component: EventLogsPage }
 ];
 
 const isAuthed = ref(Boolean(localStorage.getItem('admin_token')));
@@ -53,7 +63,7 @@ async function logout() {
   try {
     await api.logout();
   } catch {
-    // 本地退出优先，服务端会话过期时忽略错误。
+    // 本地退出优先。
   }
   localStorage.removeItem('admin_token');
   isAuthed.value = false;

@@ -48,6 +48,7 @@ class LoginRequest(BaseModel):
 
 class LicenseCreate(BaseModel):
     key: str | None = None
+    count: int = Field(default=1, ge=1, le=500)
     owner: str | None = None
     max_devices: int = Field(default=1, ge=1)
     expires_at: str | None = None
@@ -61,6 +62,10 @@ class LicenseUpdate(BaseModel):
     expires_at: str | None = None
     note: str | None = None
     status: str | None = None
+
+
+class LicenseBulkDelete(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
 
 
 class ActivateRequest(BaseModel):
@@ -172,6 +177,19 @@ def event_payload(payload: dict[str, Any] | None) -> str | None:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")) if payload is not None else None
 
 
+def is_activity_event(event_type: str) -> bool:
+    allowed = {
+        "app_start",
+        "app_heartbeat",
+        "license_activate",
+        "license_verify",
+        "license.activate",
+        "license.verify",
+        "update_check",
+    }
+    return event_type in allowed
+
+
 def request_ip(request: Request) -> str | None:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
@@ -223,20 +241,32 @@ def list_licenses(admin: dict = Depends(require_admin)) -> dict:
 
 @app.post("/api/admin/licenses", status_code=status.HTTP_201_CREATED)
 def create_license(payload: LicenseCreate, admin: dict = Depends(require_admin)) -> dict:
-    key = payload.key or make_token("LIC-")
+    if payload.key and payload.count > 1:
+        raise HTTPException(status_code=400, detail="bulk_create_cannot_use_fixed_key")
+    items = []
     with session() as conn:
-        try:
-            conn.execute(
-                """
-                INSERT INTO licenses (key, status, owner, max_devices, expires_at, note)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (key, payload.status, payload.owner, payload.max_devices, payload.expires_at, payload.note),
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=409, detail="license_key_exists") from exc
-        row = get_license_by_key(conn, key)
-    return {"item": row}
+        for _ in range(payload.count):
+            key = payload.key or make_token("LIC-")
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO licenses (key, status, owner, max_devices, expires_at, note)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (key, payload.status, payload.owner, payload.max_devices, payload.expires_at, payload.note),
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail="license_key_exists") from exc
+            items.append(get_license_by_key(conn, key))
+    return {"item": items[0] if len(items) == 1 else None, "items": items}
+
+
+@app.post("/api/admin/licenses/bulk-delete")
+def bulk_delete_licenses(payload: LicenseBulkDelete, admin: dict = Depends(require_admin)) -> dict:
+    placeholders = ",".join("?" for _ in payload.ids)
+    with session() as conn:
+        cursor = conn.execute(f"DELETE FROM licenses WHERE id IN ({placeholders})", payload.ids)
+    return {"ok": True, "deleted": cursor.rowcount}
 
 
 @app.patch("/api/admin/licenses/{license_id}")
@@ -344,8 +374,18 @@ def list_events(
     """
     params: list[Any] = []
     if event_type:
-        sql += " WHERE events.event_type = ?"
-        params.append(event_type)
+        aliases = {
+            "license_activate": ("license_activate", "license.activate"),
+            "license_verify": ("license_verify", "license.verify"),
+        }
+        if event_type in aliases:
+            sql += " WHERE events.event_type IN (?, ?)"
+            params.extend(aliases[event_type])
+        else:
+            sql += " WHERE events.event_type = ?"
+            params.append(event_type)
+    else:
+        sql += " WHERE events.event_type NOT LIKE 'task_%'"
     sql += " ORDER BY events.id DESC LIMIT ?"
     params.append(limit)
     with session() as conn:
@@ -360,17 +400,76 @@ def admin_stats(admin: dict = Depends(require_admin)) -> dict:
             row["status"]: row["count"]
             for row in conn.execute("SELECT status, COUNT(*) AS count FROM licenses GROUP BY status").fetchall()
         }
+        license_counts["active_usable"] = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM licenses
+            WHERE status = 'active'
+              AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
+            """
+        ).fetchone()["count"]
         event_counts = {
             row["event_type"]: row["count"]
-            for row in conn.execute("SELECT event_type, COUNT(*) AS count FROM events GROUP BY event_type").fetchall()
+            for row in conn.execute(
+                """
+                SELECT event_type, COUNT(*) AS count
+                FROM events
+                WHERE event_type NOT LIKE 'task_%'
+                GROUP BY event_type
+                """
+            ).fetchall()
         }
         total_clients = conn.execute("SELECT COUNT(*) AS count FROM clients").fetchone()["count"]
         total_releases = conn.execute("SELECT COUNT(*) AS count FROM releases").fetchone()["count"]
+        active_15m = conn.execute(
+            "SELECT COUNT(*) AS count FROM clients WHERE datetime(last_seen_at) >= datetime('now', '-15 minutes')"
+        ).fetchone()["count"]
+        active_24h = conn.execute(
+            "SELECT COUNT(*) AS count FROM clients WHERE datetime(last_seen_at) >= datetime('now', '-24 hours')"
+        ).fetchone()["count"]
+        starts_24h = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM events
+            WHERE event_type = 'app_start' AND datetime(created_at) >= datetime('now', '-24 hours')
+            """
+        ).fetchone()["count"]
+        heartbeats_24h = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM events
+            WHERE event_type = 'app_heartbeat' AND datetime(created_at) >= datetime('now', '-24 hours')
+            """
+        ).fetchone()["count"]
+        unique_active_24h = conn.execute(
+            """
+            SELECT COUNT(DISTINCT COALESCE(client_id, machine_id)) AS count
+            FROM events
+            WHERE event_type IN (
+                'app_start',
+                'app_heartbeat',
+                'license_activate',
+                'license.activate',
+                'license_verify',
+                'license.verify',
+                'update_check'
+            )
+              AND datetime(created_at) >= datetime('now', '-24 hours')
+            """
+        ).fetchone()["count"]
     return {
         "licenses": license_counts,
-        "clients": {"total": total_clients},
+        "clients": {"total": total_clients, "active_15m": active_15m, "active_24h": active_24h},
         "releases": {"total": total_releases},
         "events": event_counts,
+        "activity": {
+            "active_15m": active_15m,
+            "active_24h": active_24h,
+            "unique_active_24h": unique_active_24h,
+            "app_starts_24h": starts_24h,
+            "heartbeats_24h": heartbeats_24h,
+            "estimated_online_minutes_24h": heartbeats_24h * 5,
+        },
     }
 
 
@@ -497,6 +596,8 @@ def latest_release(platform: str = "windows") -> dict:
 
 @app.post("/api/events", status_code=status.HTTP_202_ACCEPTED)
 def write_event(payload: EventRequest, request: Request) -> dict:
+    if not is_activity_event(payload.event_type):
+        return {"ok": True, "ignored": True}
     ip = request_ip(request)
     with session() as conn:
         license_row = get_license_by_key(conn, payload.license_key) if payload.license_key else None

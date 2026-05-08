@@ -1,5 +1,16 @@
 const API_BASE = '/api';
 
+const ERROR_TEXT = {
+  not_authenticated: '请先登录后台',
+  session_expired: '登录已过期，请重新登录',
+  invalid_credentials: '账号或密码错误',
+  license_key_exists: '卡密已存在',
+  bulk_create_cannot_use_fixed_key: '批量生成不能指定固定卡密',
+  license_not_found: '卡密不存在',
+  release_exists: '版本号已存在',
+  release_not_found: '暂无可用版本'
+};
+
 async function request(path, options = {}) {
   const token = localStorage.getItem('admin_token');
   const headers = {
@@ -20,8 +31,8 @@ async function request(path, options = {}) {
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    const message = data?.message || data?.detail || `请求失败：${response.status}`;
-    throw new Error(message);
+    const detail = data?.message || data?.detail || '';
+    throw new Error(ERROR_TEXT[detail] || `请求失败，状态码 ${response.status}`);
   }
 
   return data;
@@ -53,16 +64,31 @@ export const api = {
     return request('/admin/licenses', {
       method: 'POST',
       body: JSON.stringify({
+        count: Number(payload.count || 1),
+        owner: payload.owner || '',
         max_devices: Number(payload.max_devices || 1),
         expires_at: expiresAt,
-        note: payload.remark || payload.note || ''
+        note: payload.remark || payload.note || '',
+        status: payload.status || 'active'
       })
     });
   },
-  disableCardKey(id) {
+  updateCardKey(id, payload) {
     return request(`/admin/licenses/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'disabled' })
+      body: JSON.stringify(payload)
+    });
+  },
+  disableCardKey(id) {
+    return this.updateCardKey(id, { status: 'disabled' });
+  },
+  enableCardKey(id) {
+    return this.updateCardKey(id, { status: 'active' });
+  },
+  bulkDeleteCardKeys(ids) {
+    return request('/admin/licenses/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
     });
   },
   bindings(params = {}) {

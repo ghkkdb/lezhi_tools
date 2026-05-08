@@ -119,6 +119,7 @@ textarea:focus {
 
 .primary-btn,
 .ghost-btn,
+.danger-btn,
 .link-btn,
 .logout,
 .nav button {
@@ -141,10 +142,21 @@ textarea:focus {
   padding: 0 14px;
 }
 
+.danger-btn {
+  min-height: 38px;
+  background: #b42318;
+  color: #fff;
+  padding: 0 14px;
+}
+
 .link-btn {
   background: transparent;
   color: #1769aa;
   padding: 4px 0;
+}
+
+.danger-text {
+  color: #b42318;
 }
 
 .form-error,
@@ -245,6 +257,12 @@ textarea:focus {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .page-header p {
@@ -368,6 +386,14 @@ textarea:focus {
   padding: 14px;
 }
 
+.license-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.action-toolbar {
+  grid-template-columns: minmax(260px, 1fr) auto auto auto;
+}
+
 .release-form {
   grid-template-columns: 180px 140px minmax(260px, 1fr);
 }
@@ -403,6 +429,15 @@ td {
   padding: 12px 14px;
   text-align: left;
   vertical-align: middle;
+}
+
+.check-col {
+  width: 42px;
+  text-align: center;
+}
+
+.check-col input {
+  width: auto;
 }
 
 th {
@@ -446,6 +481,50 @@ td {
   display: grid;
   gap: 0;
   padding: 8px 0;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.activity-list {
+  display: grid;
+  gap: 12px;
+}
+
+.activity-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e7edf2;
+  padding-bottom: 12px;
+}
+
+.activity-list div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.activity-list span {
+  color: #607083;
+}
+
+.activity-list strong {
+  color: #172033;
+  font-size: 22px;
+}
+
+.notice.success {
+  margin: 0 0 14px;
+  color: #16723b;
+}
+
+.notice.muted {
+  margin: -4px 0 14px;
+  color: #607083;
 }
 
 .log-item {
@@ -505,8 +584,10 @@ td {
   }
 
   .toolbar,
+  .action-toolbar,
   .inline-form,
-  .release-form {
+  .release-form,
+  .license-form {
     grid-template-columns: 1fr;
   }
 }

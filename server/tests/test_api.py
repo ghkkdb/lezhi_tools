@@ -62,7 +62,24 @@ def test_admin_license_activation_verify_and_stats(tmp_path):
         stats = client.get("/api/admin/stats", headers=headers)
         assert stats.status_code == 200
         assert stats.json()["licenses"]["active"] == 1
+        assert stats.json()["licenses"]["active_usable"] == 1
         assert stats.json()["clients"]["total"] == 1
+
+        bulk = client.post(
+            "/api/admin/licenses",
+            headers=headers,
+            json={"count": 3, "max_devices": 1},
+        )
+        assert bulk.status_code == 201
+        assert len(bulk.json()["items"]) == 3
+
+        deleted = client.post(
+            "/api/admin/licenses/bulk-delete",
+            headers=headers,
+            json={"ids": [item["id"] for item in bulk.json()["items"]]},
+        )
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] == 3
 
 
 def test_release_latest_and_events(tmp_path):
@@ -89,10 +106,10 @@ def test_release_latest_and_events(tmp_path):
 
         event = client.post(
             "/api/events",
-            json={"event_type": "client.start", "machine_id": "machine-a", "payload": {"ok": True}},
+            json={"event_type": "app_start", "machine_id": "machine-a", "payload": {"ok": True}},
         )
         assert event.status_code == 202
 
         events = client.get("/api/admin/events", headers=headers)
         assert events.status_code == 200
-        assert events.json()["items"][0]["event_type"] == "client.start"
+        assert events.json()["items"][0]["event_type"] == "app_start"

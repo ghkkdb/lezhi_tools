@@ -4,7 +4,7 @@
       <div class="login-copy">
         <span class="badge">Admin Console</span>
         <h1>乐知工具后台</h1>
-        <p>管理卡密、客户端绑定、版本发布与事件审计。</p>
+        <p>管理卡密、客户端绑定、版本发布和软件活跃指标。</p>
       </div>
 
       <form class="login-form" @submit.prevent="submit">

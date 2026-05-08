@@ -26,8 +26,8 @@
             <td class="mono">{{ item.license_key }}</td>
             <td>{{ item.app_version || '-' }}</td>
             <td>{{ item.last_ip || '-' }}</td>
-            <td>{{ item.last_seen_at || '-' }}</td>
-            <td><button type="button" class="link-btn" @click="unbind(item)">解绑</button></td>
+            <td>{{ formatTime(item.last_seen_at) }}</td>
+            <td><button type="button" class="link-btn danger-text" @click="unbind(item)">解绑</button></td>
           </tr>
         </tbody>
       </table>
@@ -42,9 +42,14 @@ import { api } from '../api';
 import { useAsync } from '../composables/useAsync';
 import EmptyState from '../components/EmptyState.vue';
 import PageHeader from '../components/PageHeader.vue';
+import { formatServerTime } from '../utils/time';
 
 const rows = ref([]);
 const { error, run } = useAsync();
+
+function formatTime(value) {
+  return formatServerTime(value);
+}
 
 async function load() {
   const data = await run(() => api.bindings());
@@ -52,6 +57,7 @@ async function load() {
 }
 
 async function unbind(item) {
+  if (!window.confirm(`确认解绑客户端 ${item.machine_id}？`)) return;
   const data = await run(() => api.unbindClient(item.id));
   if (data !== null) await load();
 }

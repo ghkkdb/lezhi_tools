@@ -16,23 +16,36 @@
 
     <div class="split-grid">
       <section class="panel">
-        <h2>最近事件</h2>
+        <h2>最近活跃</h2>
         <ul v-if="recentLogs.length" class="timeline">
           <li v-for="log in recentLogs" :key="log.id">
-            <span>{{ log.event_type || 'event' }}</span>
-            <p>{{ eventPayload(log) }}</p>
-            <time>{{ log.created_at || '-' }}</time>
+            <span>{{ eventName(log.event_type) }}</span>
+            <p>{{ log.license_key || log.machine_id || '匿名客户端' }}</p>
+            <time>{{ formatTime(log.created_at) }}</time>
           </li>
         </ul>
-        <EmptyState v-else />
+        <EmptyState v-else title="暂无活跃日志" description="客户端启动、心跳、验证和更新检查会显示在这里。" />
       </section>
 
       <section class="panel">
-        <h2>统计概览</h2>
-        <div class="version-summary">
-          <strong>{{ summary.releases?.total || 0 }} 个版本</strong>
-          <span>{{ summary.clients?.total || 0 }} 个客户端</span>
-          <p>事件类型：{{ Object.keys(summary.events || {}).join(', ') || '暂无' }}</p>
+        <h2>活跃指标</h2>
+        <div class="activity-list">
+          <div>
+            <span>近 15 分钟在线</span>
+            <strong>{{ activity.active_15m || 0 }}</strong>
+          </div>
+          <div>
+            <span>近 24 小时活跃客户端</span>
+            <strong>{{ activity.unique_active_24h || 0 }}</strong>
+          </div>
+          <div>
+            <span>近 24 小时启动次数</span>
+            <strong>{{ activity.app_starts_24h || 0 }}</strong>
+          </div>
+          <div>
+            <span>近 24 小时估算在线分钟</span>
+            <strong>{{ activity.estimated_online_minutes_24h || 0 }}</strong>
+          </div>
         </div>
       </section>
     </div>
@@ -45,29 +58,36 @@ import { api } from '../api';
 import { useAsync } from '../composables/useAsync';
 import EmptyState from '../components/EmptyState.vue';
 import PageHeader from '../components/PageHeader.vue';
+import { formatServerTime } from '../utils/time';
 
 const summary = ref({});
 const recentLogs = ref([]);
 const { error, run } = useAsync();
 
+const activity = computed(() => summary.value.activity || {});
 const metrics = computed(() => [
-  { label: '有效卡密', value: summary.value.licenses?.active || 0, hint: '当前 active 状态卡密' },
-  { label: '已绑定客户端', value: summary.value.clients?.total || 0, hint: '客户端绑定数量' },
-  {
-    label: '事件总数',
-    value: Object.values(summary.value.events || {}).reduce((sum, value) => sum + Number(value || 0), 0),
-    hint: '全部事件累计'
-  },
-  { label: '任务失败', value: summary.value.events?.task_error || 0, hint: '需要关注的任务异常' }
+  { label: '有效卡密', value: summary.value.licenses?.active_usable || 0, hint: '当前可正常验证的卡密' },
+  { label: '已禁用卡密', value: summary.value.licenses?.disabled || 0, hint: '后台手动禁用的卡密' },
+  { label: '绑定客户端', value: summary.value.clients?.total || 0, hint: '已经激活绑定的客户端数' },
+  { label: '近 24 小时活跃', value: activity.value.unique_active_24h || 0, hint: '有启动、心跳或验证的客户端' }
 ]);
 
-function eventPayload(log) {
-  if (!log.payload) return '-';
-  try {
-    return JSON.stringify(JSON.parse(log.payload));
-  } catch {
-    return log.payload;
-  }
+const EVENT_TEXT = {
+  app_start: '启动',
+  app_heartbeat: '心跳',
+  license_activate: '激活',
+  license_verify: '验证',
+  'license.activate': '激活',
+  'license.verify': '验证',
+  update_check: '更新检查'
+};
+
+function eventName(value) {
+  return EVENT_TEXT[value] || value || '活跃';
+}
+
+function formatTime(value) {
+  return formatServerTime(value);
 }
 
 async function load() {

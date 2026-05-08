@@ -13,8 +13,8 @@
     - 底部：运行控制区（窗口选择 + 操作按钮 + 运行日志）
 """
 import sys
-import time
 import webbrowser
+from datetime import datetime, timezone
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton,
@@ -34,6 +34,7 @@ from src.ui.panels.log_panel import LogPanel
 from src.ui.panels.task_list_panel import TaskListPanel
 from src.ui.panels.task_config_panel import TaskConfigPanel
 from src.ui.panels.multi_window_panel import MultiWindowControlPage
+from src.ui.app_icons import app_icon
 from src.ui.styles import ColorScheme
 from src.utils.logger import LogManager, LogLevel, get_logger, strip_ui_log_context
 from src.utils.win_api import release_tracked_inputs
@@ -41,6 +42,11 @@ from src.config.app_config import APP_VERSION
 from src.services import license_client, telemetry_client, update_client
 from src.services.license_client import LicenseState
 from src.services.update_client import UpdateInfo
+
+
+DEFAULT_LICENSE_KEY = "LIC-EHYuFJjFKpVdNSDuYeQuehXRFCo6ikmGflacyRZbxVg"
+QQ_GROUP_NUMBER = "870393715"
+QQ_GROUP_URL = "https://qm.qq.com/q/HqNYR83f6c"
 
 
 class ClassicScriptUI(QMainWindow):
@@ -64,7 +70,7 @@ class ClassicScriptUI(QMainWindow):
         初始化主界面
         """
         super().__init__()
-        self.setWindowTitle(config.app_name)
+        self.setWindowIcon(app_icon())
         self.setFixedSize(config.ui_width, config.ui_height)
         
         self.task_widgets = {}
@@ -76,8 +82,7 @@ class ClassicScriptUI(QMainWindow):
         self.multi_window_page = None
         self.license_state = license_state or LicenseState(ok=False, message="卡密未验证或已失效")
         self.update_info = update_info
-        self._task_run_started_at = None
-        self._task_run_names = []
+        self._refresh_window_title()
         
         # 获取状态管理器和配置管理器实例
         self.state_manager = StateManager.get_instance()
@@ -330,8 +335,14 @@ class ClassicScriptUI(QMainWindow):
             QWidget: 基础设置页面组件
         """
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(14, 14, 14, 14)
+        page_layout = QHBoxLayout(page)
+        page_layout.setContentsMargins(14, 14, 14, 14)
+        page_layout.setSpacing(10)
+
+        left_panel = QWidget()
+        left_panel.setMaximumWidth(max(420, config.ui_width // 2))
+        layout = QVBoxLayout(left_panel)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
         auth_group = QGroupBox("卡密授权")
@@ -346,8 +357,8 @@ class ClassicScriptUI(QMainWindow):
         input_row = QHBoxLayout()
         self.license_key_input = QLineEdit()
         self.license_key_input.setPlaceholderText("请输入卡密")
-        self.license_key_input.setText(license_client.get_cached_license_key())
-        self.license_key_input.setEchoMode(QLineEdit.Password)
+        self.license_key_input.setText(license_client.get_cached_license_key() or DEFAULT_LICENSE_KEY)
+        self.license_key_input.setEchoMode(QLineEdit.Normal)
         input_row.addWidget(self.license_key_input, stretch=1)
 
         self.verify_license_btn = QPushButton("验证卡密")
@@ -355,6 +366,25 @@ class ClassicScriptUI(QMainWindow):
         input_row.addWidget(self.verify_license_btn)
         auth_layout.addLayout(input_row)
         layout.addWidget(auth_group)
+
+        group_box = QGroupBox("交流群")
+        group_layout = QVBoxLayout(group_box)
+        group_layout.setContentsMargins(12, 14, 12, 12)
+        group_layout.setSpacing(8)
+
+        group_number_label = QLabel(f"群号：{QQ_GROUP_NUMBER}")
+        group_number_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
+        group_layout.addWidget(group_number_label)
+
+        group_link_label = QLabel(
+            f'<a href="{QQ_GROUP_URL}">点击链接加入群聊【糊批解放器】</a>'
+        )
+        group_link_label.setOpenExternalLinks(True)
+        group_link_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        group_link_label.setStyleSheet(f"color: {self._colors['primary']};")
+        group_layout.addWidget(group_link_label)
+
+        layout.addWidget(group_box)
 
         update_group = QGroupBox("版本更新")
         update_layout = QVBoxLayout(update_group)
@@ -375,20 +405,41 @@ class ClassicScriptUI(QMainWindow):
         update_layout.addLayout(update_row)
         layout.addWidget(update_group)
         layout.addStretch()
+        page_layout.addWidget(left_panel)
+        page_layout.addStretch()
         
         return page
+
+    def _refresh_window_title(self):
+        auth_text = "授权已激活" if self.license_state and self.license_state.ok else "授权未激活"
+        self.setWindowTitle(f"{config.app_name} v{APP_VERSION} - {auth_text}")
+
+    def _format_expire_at(self, expire_at: str) -> str:
+        if not expire_at:
+            return "未知"
+
+        text = str(expire_at).strip()
+        normalized = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            return text.split("T", 1)[0] or text
 
     def _refresh_license_ui(self):
         if not hasattr(self, "license_status_label"):
             return
 
         if self.license_state.ok:
-            expire = self.license_state.expire_at or "未知"
+            expire = self._format_expire_at(self.license_state.expire_at)
             self.license_status_label.setText(f"授权有效，到期时间: {expire}")
             self.license_status_label.setStyleSheet(f"color: {self._colors['success']}; font-weight: 600;")
         else:
             self.license_status_label.setText(self.license_state.message or "卡密未验证或已失效")
             self.license_status_label.setStyleSheet(f"color: {self._colors['danger']}; font-weight: 600;")
+        self._refresh_window_title()
 
     def _activate_license_from_ui(self):
         key = self.license_key_input.text().strip()
@@ -397,11 +448,6 @@ class ClassicScriptUI(QMainWindow):
         QApplication.processEvents()
 
         self.license_state = license_client.activate_license(key)
-        telemetry_client.track(
-            "license_activate",
-            {"message": self.license_state.message},
-            success=self.license_state.ok,
-        )
         self.verify_license_btn.setEnabled(True)
         self._refresh_license_ui()
 
@@ -563,14 +609,6 @@ class ClassicScriptUI(QMainWindow):
         self.window_picker.lock_window_size(self.state_manager.bound_hwnd)
         
         task_params = self.config_manager.get_task_params(self.task_config_panel)
-        self._task_run_started_at = time.monotonic()
-        self._task_run_names = list(selected)
-        telemetry_client.track(
-            "task_start",
-            {"mode": "single", "task_count": len(selected), "tasks": selected},
-            success=True,
-        )
-        
         self.worker = ScriptWorker(
             selected,
             self.state_manager.bound_hwnd,
@@ -649,14 +687,6 @@ class ClassicScriptUI(QMainWindow):
         """
         if result is None:
             result = False
-        success = result is True or (isinstance(result, dict) and all(result.values()))
-        telemetry_client.track(
-            "task_finish" if success else "task_error",
-            {"mode": "single", "result": result},
-            task_name=task_name,
-            success=success,
-        )
-        
         if result is False:
             self.logger.warning(f"任务 [{task_name}] 执行失败或被中止")
             return
@@ -697,16 +727,6 @@ class ClassicScriptUI(QMainWindow):
         bound_hwnd = self.state_manager.bound_hwnd
         if bound_hwnd:
             self.window_picker.unlock_window_size(bound_hwnd)
-        if self._task_run_started_at is not None:
-            duration_ms = int((time.monotonic() - self._task_run_started_at) * 1000)
-            telemetry_client.track(
-                "task_finish",
-                {"mode": "single_summary", "tasks": self._task_run_names},
-                success=True,
-                duration_ms=duration_ms,
-            )
-        self._task_run_started_at = None
-        self._task_run_names = []
         self.state_manager.set_button_state(ButtonState.IDLE)
 
     def closeEvent(self, event: QCloseEvent):

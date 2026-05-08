@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.config import config
 from src.config.app_config import APP_VERSION
@@ -74,7 +74,7 @@ def activate_license(license_key: str) -> LicenseState:
     try:
         data = request_json("POST", "/api/license/activate", payload)
     except ApiError as exc:
-        return LicenseState(ok=False, license_key=license_key, message=f"验证失败: {exc}", offline=True)
+        return LicenseState(ok=False, license_key=license_key, message=f"验证失败：{exc}", offline=True)
 
     state = _state_from_response(data, license_key)
     _write_cache({
@@ -93,22 +93,23 @@ def verify_cached_license() -> LicenseState:
     if not license_key:
         return LicenseState(ok=False, message="未填写卡密")
 
+    cache = _read_cache()
     payload = {
         "key": license_key,
         "machine_id": get_client_id(),
-        "activation_token": str(_read_cache().get("activation_token", "")),
+        "activation_token": str(cache.get("activation_token", "")),
         "app_version": APP_VERSION,
     }
     try:
         data = request_json("POST", "/api/license/verify", payload)
     except ApiError as exc:
-        return LicenseState(ok=False, license_key=license_key, message=f"授权验证失败: {exc}", offline=True)
+        return LicenseState(ok=False, license_key=license_key, message=f"授权验证失败：{exc}", offline=True)
 
     state = _state_from_response(data, license_key)
     _write_cache({
         "license_key": license_key,
         "client_id": get_client_id(),
-        "activation_token": data.get("activation_token", _read_cache().get("activation_token", "")),
+        "activation_token": data.get("activation_token", cache.get("activation_token", "")),
         "ok": state.ok,
         "expire_at": state.expire_at,
         "message": state.message,

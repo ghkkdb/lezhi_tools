@@ -6,11 +6,14 @@
 
     <form class="release-form" @submit.prevent="publish">
       <label>版本号<input v-model.trim="form.version" placeholder="例如 1.2.0" required /></label>
-      <label>下载地址<input v-model.trim="form.download_url" placeholder="http://..." required /></label>
+      <label>下载地址<input v-model.trim="form.download_url" placeholder="http://服务器IP/updates/xxx.zip" required /></label>
       <label class="full">更新说明<textarea v-model.trim="form.release_note" rows="4" /></label>
       <label class="checkbox-row"><input v-model="form.force_update" type="checkbox" /> 标记为强制更新</label>
     </form>
 
+    <p class="notice muted">
+      客户端检查更新出现 404，通常表示这里还没有发布任何“启用”的 windows 版本。发布一条启用版本后会恢复正常。
+    </p>
     <p v-if="error" class="notice error">{{ error }}</p>
 
     <section class="panel">
@@ -32,8 +35,8 @@
               <td class="mono">{{ item.version }}</td>
               <td>{{ item.platform }}</td>
               <td>{{ item.mandatory ? '是' : '否' }}</td>
-              <td>{{ item.active ? '是' : '否' }}</td>
-              <td>{{ item.created_at || '-' }}</td>
+              <td><span class="status" :data-status="item.active ? 'active' : 'disabled'">{{ item.active ? '启用' : '停用' }}</span></td>
+              <td>{{ formatTime(item.created_at) }}</td>
               <td><a :href="item.download_url" target="_blank" rel="noreferrer">{{ item.download_url }}</a></td>
             </tr>
           </tbody>
@@ -50,10 +53,15 @@ import { api } from '../api';
 import { useAsync } from '../composables/useAsync';
 import EmptyState from '../components/EmptyState.vue';
 import PageHeader from '../components/PageHeader.vue';
+import { formatServerTime } from '../utils/time';
 
 const rows = ref([]);
 const form = reactive({ version: '', download_url: '', release_note: '', force_update: false });
 const { error, run } = useAsync();
+
+function formatTime(value) {
+  return formatServerTime(value);
+}
 
 async function load() {
   const data = await run(() => api.versions());
